@@ -5,6 +5,7 @@ import (
     "os"
     "log"
     "internal/config"
+    _ "github.com/lib/pq"
 )
 
 type state struct {
@@ -59,7 +60,7 @@ func main() {
     commands := commands{commands: make(map[string]func(*state, command) error, 16)}
     commands.register("login", handlerLogin)
 
-    if len(args) < 2 {
+    if len(args) <= 2 {
         log.Fatalf("Not enough arguments\n")
     }
     command := command{name: args[1], args: args[2:]}
