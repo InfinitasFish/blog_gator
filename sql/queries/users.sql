@@ -10,4 +10,5 @@ RETURNING *;
 
 -- name: GetUser :one
 SELECT * FROM users
-WHERE users.id = $1 LIMIT 1;
+WHERE users.name = $1
+LIMIT 1;
