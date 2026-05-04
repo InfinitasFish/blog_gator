@@ -12,3 +12,10 @@ RETURNING *;
 SELECT * FROM users
 WHERE users.name = $1
 LIMIT 1;
+
+-- name: ResetTable :exec
+DELETE FROM users;
+
+-- name: ListUsers :many
+SELECT users.name FROM users
+ORDER BY users.id;

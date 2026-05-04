@@ -65,3 +65,40 @@ func (q *Queries) GetUser(ctx context.Context, name sql.NullString) (User, error
 	)
 	return i, err
 }
+
+const listUsers = `-- name: ListUsers :many
+SELECT users.name FROM users
+ORDER BY users.id
+`
+
+func (q *Queries) ListUsers(ctx context.Context) ([]sql.NullString, error) {
+	rows, err := q.db.QueryContext(ctx, listUsers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []sql.NullString
+	for rows.Next() {
+		var name sql.NullString
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		items = append(items, name)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const resetTable = `-- name: ResetTable :exec
+DELETE FROM users
+`
+
+func (q *Queries) ResetTable(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, resetTable)
+	return err
+}

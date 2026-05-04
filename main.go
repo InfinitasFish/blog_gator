@@ -5,12 +5,13 @@ import (
     "time"
     "os"
     "log"
-    "database/sql"
-    "internal/config"
-    "internal/database"
     "context"
+    "database/sql"
     "github.com/google/uuid"
     _ "github.com/lib/pq"
+    "internal/config"
+    "internal/database"
+    "internal/rss"
 )
 
 type state struct {
@@ -40,7 +41,7 @@ func (c *commands) register(name string, f func(*state, command) error) {
     c.commands[name] = f
 }
 
-func registerUser(s *state, cmd command) error {
+func handlerRegisterUser(s *state, cmd command) error {
     if len(cmd.args) == 0 {
         return fmt.Errorf("The login handler expects the username\n")
     }
@@ -85,6 +86,70 @@ func handlerLogin(s *state, cmd command) error {
     return nil
 }
 
+func handlerResetUsers(s* state, cmd command) error {
+    empty_context := context.Background()
+    err := s.db.ResetTable(empty_context)
+    if err != nil {
+        return err
+    }
+    return nil
+}
+
+func handlerListUsers(s* state, cmd command) error {
+    empty_context := context.Background()
+    users, err := s.db.ListUsers(empty_context)
+    if err != nil {
+        return err
+    }
+
+    currentUser := *s.conf.UserName
+    for _, sqlUsr := range users {
+        if (sqlUsr.String == currentUser) {
+            fmt.Printf("* %v (current)\n", sqlUsr.String)
+        } else {
+            fmt.Printf("* %v\n", sqlUsr.String)
+        }
+    }
+    return nil
+}
+
+func handlerAggregation(s *state, cmd command) error {
+    empty_context := context.Background()
+    feedUrl := "https://www.wagslane.dev/index.xml"
+	
+	rssFeed, err := rss.FetchFeed(empty_context, feedUrl)
+    if err != nil {
+        return err
+    }
+
+    fmt.Println(rssFeed)
+    return nil
+}
+
+func handlerAddFeed(s *state, cmd command) error {
+    if len(cmd.args) != 2 {
+        return fmt.Errorf("The AddFeed handler expects the name and url\n")
+    }
+
+    empty_context := context.Background()
+    feed_name := sql.NullString{String: cmd.args[0], Valid: true}
+    user_name := sql.NullString{String: *s.conf.UserName, Valid: true}
+    feed_url := cmd.args[1]
+    user, err := s.db.GetUser(empty_context, user_name)
+    if err != nil {
+        return err
+    }
+    user_id := user.ID
+    
+    feed_args := database.AddFeedParams{ID: uuid.New(), CreatedAt: time.Now(), UpdatedAt: time.Now(),
+                                    Name: feed_name, FeedUrl: feed_url, UserID: user_id}
+    _, err = s.db.AddFeed(empty_context, feed_args)
+    if err != nil {
+        return err
+    }
+    return nil
+}
+
 func main() {
 	cnf, err := config.Read()
     if err != nil {
@@ -102,21 +167,19 @@ func main() {
     sharedState := &state{conf: &cnf, db: dbQueries}
     args := os.Args
     commands := commands{commands: make(map[string]func(*state, command) error, 16)}
-    commands.register("register", registerUser)
     commands.register("login", handlerLogin)
+    commands.register("register", handlerRegisterUser)
+    commands.register("reset", handlerResetUsers)
+    commands.register("users", handlerListUsers)
+    commands.register("agg", handlerAggregation)
+    commands.register("addfeed", handlerAddFeed)
 
-    if len(args) <= 2 {
+    if len(args) <= 1 {
         log.Fatalf("Not enough arguments\n")
     }
     command := command{name: args[1], args: args[2:]}
     err = commands.run(sharedState, command)
     if err != nil {
-        log.Fatalf("Error in command %v()\n", command)
+        log.Fatalf("Error in command %v(): %v\n", command, err)
     }
-
-    // fmt.Printf("%v\n", cnf)
-    // fmt.Printf("%v\n", command)
-    // fmt.Printf("%v\n", sharedState)
-    // fmt.Printf("%v\n", args)
-
 }
