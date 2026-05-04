@@ -14,7 +14,7 @@ import (
 )
 
 const addFeed = `-- name: AddFeed :one
-INSERT INTO feeds (id, created_at, updated_at, name, feed_url, user_id)
+INSERT INTO feeds (id, created_at, updated_at, feed_name, feed_url, user_id)
 VALUES (
     $1,
     $2,
@@ -23,14 +23,14 @@ VALUES (
     $5,
     $6
 )
-RETURNING id, created_at, updated_at, name, feed_url, user_id
+RETURNING id, created_at, updated_at, feed_name, feed_url, user_id
 `
 
 type AddFeedParams struct {
 	ID        uuid.UUID
 	CreatedAt time.Time
 	UpdatedAt time.Time
-	Name      sql.NullString
+	FeedName  sql.NullString
 	FeedUrl   string
 	UserID    uuid.UUID
 }
@@ -40,7 +40,7 @@ func (q *Queries) AddFeed(ctx context.Context, arg AddFeedParams) (Feed, error) 
 		arg.ID,
 		arg.CreatedAt,
 		arg.UpdatedAt,
-		arg.Name,
+		arg.FeedName,
 		arg.FeedUrl,
 		arg.UserID,
 	)
@@ -49,9 +49,50 @@ func (q *Queries) AddFeed(ctx context.Context, arg AddFeedParams) (Feed, error) 
 		&i.ID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Name,
+		&i.FeedName,
 		&i.FeedUrl,
 		&i.UserID,
 	)
 	return i, err
+}
+
+const listFeeds = `-- name: ListFeeds :many
+SELECT users.user_name, feeds.feed_name, feeds.feed_url, feeds.user_id FROM feeds
+INNER JOIN users ON feeds.user_id = users.id
+ORDER BY feeds.feed_name
+`
+
+type ListFeedsRow struct {
+	UserName sql.NullString
+	FeedName sql.NullString
+	FeedUrl  string
+	UserID   uuid.UUID
+}
+
+func (q *Queries) ListFeeds(ctx context.Context) ([]ListFeedsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listFeeds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListFeedsRow
+	for rows.Next() {
+		var i ListFeedsRow
+		if err := rows.Scan(
+			&i.UserName,
+			&i.FeedName,
+			&i.FeedUrl,
+			&i.UserID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

@@ -14,21 +14,21 @@ import (
 )
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (id, created_at, updated_at, name)
+INSERT INTO users (id, created_at, updated_at, user_name)
 VALUES (
     $1,
     $2,
     $3,
     $4
 )
-RETURNING id, created_at, updated_at, name
+RETURNING id, created_at, updated_at, user_name
 `
 
 type CreateUserParams struct {
 	ID        uuid.UUID
 	CreatedAt time.Time
 	UpdatedAt time.Time
-	Name      sql.NullString
+	UserName  sql.NullString
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
@@ -36,38 +36,38 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		arg.ID,
 		arg.CreatedAt,
 		arg.UpdatedAt,
-		arg.Name,
+		arg.UserName,
 	)
 	var i User
 	err := row.Scan(
 		&i.ID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Name,
+		&i.UserName,
 	)
 	return i, err
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, created_at, updated_at, name FROM users
-WHERE users.name = $1
+SELECT id, created_at, updated_at, user_name FROM users
+WHERE users.user_name = $1
 LIMIT 1
 `
 
-func (q *Queries) GetUser(ctx context.Context, name sql.NullString) (User, error) {
-	row := q.db.QueryRowContext(ctx, getUser, name)
+func (q *Queries) GetUser(ctx context.Context, userName sql.NullString) (User, error) {
+	row := q.db.QueryRowContext(ctx, getUser, userName)
 	var i User
 	err := row.Scan(
 		&i.ID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Name,
+		&i.UserName,
 	)
 	return i, err
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT users.name FROM users
+SELECT users.user_name FROM users
 ORDER BY users.id
 `
 
@@ -79,11 +79,11 @@ func (q *Queries) ListUsers(ctx context.Context) ([]sql.NullString, error) {
 	defer rows.Close()
 	var items []sql.NullString
 	for rows.Next() {
-		var name sql.NullString
-		if err := rows.Scan(&name); err != nil {
+		var user_name sql.NullString
+		if err := rows.Scan(&user_name); err != nil {
 			return nil, err
 		}
-		items = append(items, name)
+		items = append(items, user_name)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

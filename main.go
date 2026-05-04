@@ -49,7 +49,7 @@ func handlerRegisterUser(s *state, cmd command) error {
     username := sql.NullString{String: cmd.args[0], Valid: true}
     empty_context := context.Background()
     user_args := database.CreateUserParams{ID: uuid.New(), CreatedAt: time.Now(), 
-                                           UpdatedAt: time.Now(), Name: username}
+                                           UpdatedAt: time.Now(), UserName: username}
     _, err := s.db.CreateUser(empty_context, user_args)
     if err != nil {
         return err
@@ -142,11 +142,28 @@ func handlerAddFeed(s *state, cmd command) error {
     user_id := user.ID
     
     feed_args := database.AddFeedParams{ID: uuid.New(), CreatedAt: time.Now(), UpdatedAt: time.Now(),
-                                    Name: feed_name, FeedUrl: feed_url, UserID: user_id}
+                                    FeedName: feed_name, FeedUrl: feed_url, UserID: user_id}
     _, err = s.db.AddFeed(empty_context, feed_args)
     if err != nil {
         return err
     }
+    return nil
+}
+
+func handlerListFeeds(s *state, cmd command) error {
+    empty_context := context.Background()
+    feeds_rows, err := s.db.ListFeeds(empty_context)
+    if err != nil {
+        return err
+    }
+
+    for _, feed := range feeds_rows {
+        feed_name := feed.FeedName.String
+        user_name := feed.UserName.String
+        feed_url := feed.FeedUrl
+        fmt.Printf("Feed: %v, User: %v (url: %v)\n", feed_name, user_name, feed_url)
+    }
+
     return nil
 }
 
@@ -173,6 +190,7 @@ func main() {
     commands.register("users", handlerListUsers)
     commands.register("agg", handlerAggregation)
     commands.register("addfeed", handlerAddFeed)
+    commands.register("feeds", handlerListFeeds)
 
     if len(args) <= 1 {
         log.Fatalf("Not enough arguments\n")

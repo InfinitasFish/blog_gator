@@ -15,7 +15,7 @@ type Feed struct {
 	ID        uuid.UUID
 	CreatedAt time.Time
 	UpdatedAt time.Time
-	Name      sql.NullString
+	FeedName  sql.NullString
 	FeedUrl   string
 	UserID    uuid.UUID
 }
@@ -24,5 +24,5 @@ type User struct {
 	ID        uuid.UUID
 	CreatedAt time.Time
 	UpdatedAt time.Time
-	Name      sql.NullString
+	UserName  sql.NullString
 }
