@@ -48,6 +48,42 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	return i, err
 }
 
+const getFeedFollowsForUser = `-- name: GetFeedFollowsForUser :many
+SELECT users.user_name, feeds.feed_name, feeds.feed_url FROM users
+INNER JOIN feed_follows ON users.id = feed_follows.user_id
+INNER JOIN feeds ON feeds.id = feed_follows.feed_id
+WHERE user_name = $1
+`
+
+type GetFeedFollowsForUserRow struct {
+	UserName sql.NullString
+	FeedName sql.NullString
+	FeedUrl  string
+}
+
+func (q *Queries) GetFeedFollowsForUser(ctx context.Context, userName sql.NullString) ([]GetFeedFollowsForUserRow, error) {
+	rows, err := q.db.QueryContext(ctx, getFeedFollowsForUser, userName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetFeedFollowsForUserRow
+	for rows.Next() {
+		var i GetFeedFollowsForUserRow
+		if err := rows.Scan(&i.UserName, &i.FeedName, &i.FeedUrl); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getUser = `-- name: GetUser :one
 SELECT id, created_at, updated_at, user_name FROM users
 WHERE users.user_name = $1

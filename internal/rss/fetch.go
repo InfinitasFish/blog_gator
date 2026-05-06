@@ -30,7 +30,7 @@ type RSSItem struct {
 func FetchFeed(ctx context.Context, feedURL string) (*RSSFeed, error) {
 
 	client := &http.Client{
-		Timeout: 5 * time.Second,
+		Timeout: 30 * time.Second,
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", feedURL, nil)
@@ -40,10 +40,11 @@ func FetchFeed(ctx context.Context, feedURL string) (*RSSFeed, error) {
 	req.Header.Set("User-Agent", "gator")
 
 	resp, err := client.Do(req)
-	defer resp.Body.Close()
 	if err != nil {
 		return nil, err 
 	}
+	defer resp.Body.Close()
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err 

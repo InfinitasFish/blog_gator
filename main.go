@@ -64,7 +64,7 @@ func handlerRegisterUser(s *state, cmd command) error {
     return nil
 }
 
-func handlerLogin(s *state, cmd command) error {
+func handlerLogin(s *state, cmd command,) error {
     if len(cmd.args) == 0 {
         return fmt.Errorf("The login handler expects the username\n")
     }
@@ -114,39 +114,51 @@ func handlerListUsers(s* state, cmd command) error {
 }
 
 func handlerAggregation(s *state, cmd command) error {
-    empty_context := context.Background()
-    feedUrl := "https://www.wagslane.dev/index.xml"
-	
-	rssFeed, err := rss.FetchFeed(empty_context, feedUrl)
+    if len(cmd.args) != 1 {
+        return fmt.Errorf("The Aggregation handler expects the interval between requests.\nFor example '1s', '1m', '1h'.\n")
+    }
+
+    fetch_interval, err := time.ParseDuration(cmd.args[0])
     if err != nil {
         return err
     }
+    fmt.Printf("Collecting feeds every %v\n", fetch_interval)
 
-    fmt.Println(rssFeed)
+    ticker := time.NewTicker(fetch_interval)
+    for ; ; <-ticker.C {
+        err = scrapeFeeds(s)
+        if err != nil {
+            return err
+        }
+    }
+
     return nil
 }
 
-func handlerAddFeed(s *state, cmd command) error {
+func handlerAddFeed(s *state, cmd command, user_db database.User) error {
     if len(cmd.args) != 2 {
         return fmt.Errorf("The AddFeed handler expects the name and url\n")
     }
 
     empty_context := context.Background()
     feed_name := sql.NullString{String: cmd.args[0], Valid: true}
-    user_name := sql.NullString{String: *s.conf.UserName, Valid: true}
     feed_url := cmd.args[1]
-    user, err := s.db.GetUser(empty_context, user_name)
+    feed_id := uuid.New()
+    feed_args := database.AddFeedParams{ID: feed_id, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+                                    FeedName: feed_name, FeedUrl: feed_url, UserID: user_db.ID}
+    _, err := s.db.AddFeed(empty_context, feed_args)
     if err != nil {
         return err
     }
-    user_id := user.ID
-    
-    feed_args := database.AddFeedParams{ID: uuid.New(), CreatedAt: time.Now(), UpdatedAt: time.Now(),
-                                    FeedName: feed_name, FeedUrl: feed_url, UserID: user_id}
-    _, err = s.db.AddFeed(empty_context, feed_args)
+
+    // automatically add feed follow for current user
+    feed_follow_args := database.CreateFeedFollowParams{ID: uuid.New(), CreatedAt: time.Now(), UpdatedAt: time.Now(),
+                                                    UserID: user_db.ID, FeedID: feed_id}
+    _, err = s.db.CreateFeedFollow(empty_context, feed_follow_args)
     if err != nil {
         return err
     }
+
     return nil
 }
 
@@ -167,6 +179,117 @@ func handlerListFeeds(s *state, cmd command) error {
     return nil
 }
 
+func handlerFollowFeed(s *state, cmd command, user_db database.User) error {
+    if len(cmd.args) != 1 {
+        return fmt.Errorf("The FollowFeed handler expects the feed url\n")
+    }
+
+    empty_context := context.Background()
+    feed_url := cmd.args[0]
+    feed_row, err := s.db.GetFeedByUrl(empty_context, feed_url)
+    if err != nil {
+        return err
+    }
+
+    feed_follow_args := database.CreateFeedFollowParams{ID: uuid.New(), CreatedAt: time.Now(), UpdatedAt: time.Now(),
+                                            UserID: user_db.ID, FeedID: feed_row.ID}
+    _, err = s.db.CreateFeedFollow(empty_context, feed_follow_args)
+    if err != nil {
+        return err
+    }
+    fmt.Printf("User '%v' followed a Feed '%v' (url: %v)\n", user_db.UserName.String, feed_row.FeedName.String, feed_row.FeedUrl)
+
+    return nil
+}
+
+func handlerUserFollowing(s *state, cmd command, user_db database.User) error {
+    if (len(cmd.args) != 1) && (len(cmd.args) != 0) {
+        return fmt.Errorf("The UserFollowing handler expects the user's name\n")
+    }
+
+    empty_context := context.Background()
+    var user_name sql.NullString
+    // current user
+    if len(cmd.args) == 0 {
+        user_name = user_db.UserName
+    // given cmd user
+    } else {
+        user_name = sql.NullString{String: cmd.args[0], Valid: true}
+    }
+
+    user_follows, err := s.db.GetFeedFollowsForUser(empty_context, user_name)
+    if err != nil {
+        return err
+    }
+
+    fmt.Printf("User '%v' follows feeds:\n", user_name.String)
+    for _, follow := range user_follows {
+        fmt.Printf("  - %v (url: %v)\n", follow.FeedName.String, follow.FeedUrl)
+    }
+    return nil
+}
+
+func handlerUnfollowFeed(s *state, cmd command, user_db database.User) error {
+    if len(cmd.args) != 1 {
+        return fmt.Errorf("The UnfollowFeed handler expects the feed's url\n")
+    }
+    
+    empty_context := context.Background()
+    feed_db, err := s.db.GetFeedByUrl(empty_context, cmd.args[0])
+    if err != nil {
+        return err
+    }
+
+    delete_args := database.DeleteFeedFollowParams{UserID: user_db.ID, FeedID: feed_db.ID}
+    err = s.db.DeleteFeedFollow(empty_context, delete_args)
+    if err != nil {
+        return err
+    }
+
+    return nil
+}
+
+func middlewareLoggedIn(handler func(s *state, cmd command, user database.User) error) func(*state, command) error {
+    return func(s *state, cmd command) error {
+        user_name := sql.NullString{String: *s.conf.UserName, Valid: true}
+        empty_context := context.Background()
+        user_db, err := s.db.GetUser(empty_context, user_name)
+        if err != nil {
+            return err
+        }
+        return handler(s, cmd, user_db)
+    }
+}
+
+func scrapeFeeds(s *state) error {
+    // find oldest or null fetched feed -> fetch feed -> mark feed as fetched -> print feed rrs items
+    empty_context := context.Background()
+	feed_db, err := s.db.GetNextFeedToFetch(empty_context)
+    if err != nil {
+        return err
+    }
+
+    rss_feed, err := rss.FetchFeed(empty_context, feed_db.FeedUrl)
+    if err != nil {
+        return err
+    }
+
+    fetch_time := sql.NullTime{Time: time.Now(), Valid: true}
+    fetch_args := database.MarkFeedFetchedParams{ID: feed_db.ID, LastFetchedAt: fetch_time}
+    err = s.db.MarkFeedFetched(empty_context, fetch_args)
+    if err != nil {
+        return err
+    }
+
+    fmt.Printf("\nFetched '%v' (link: %v) feed\n", rss_feed.Channel.Title, rss_feed.Channel.Link)
+    for _, item := range rss_feed.Channel.Item {
+        fmt.Printf("  - item '%v' (link: %v)\n", item.Title, item.Link)
+    }
+	
+    return nil
+}
+
+// say wallahi bro
 func main() {
 	cnf, err := config.Read()
     if err != nil {
@@ -189,8 +312,11 @@ func main() {
     commands.register("reset", handlerResetUsers)
     commands.register("users", handlerListUsers)
     commands.register("agg", handlerAggregation)
-    commands.register("addfeed", handlerAddFeed)
     commands.register("feeds", handlerListFeeds)
+    commands.register("addfeed", middlewareLoggedIn(handlerAddFeed))
+    commands.register("follow", middlewareLoggedIn(handlerFollowFeed))
+    commands.register("following", middlewareLoggedIn(handlerUserFollowing))
+    commands.register("unfollow", middlewareLoggedIn(handlerUnfollowFeed))
 
     if len(args) <= 1 {
         log.Fatalf("Not enough arguments\n")

@@ -19,3 +19,9 @@ DELETE FROM users;
 -- name: ListUsers :many
 SELECT users.user_name FROM users
 ORDER BY users.id;
+
+-- name: GetFeedFollowsForUser :many
+SELECT users.user_name, feeds.feed_name, feeds.feed_url FROM users
+INNER JOIN feed_follows ON users.id = feed_follows.user_id
+INNER JOIN feeds ON feeds.id = feed_follows.feed_id
+WHERE user_name = $1;
