@@ -10,9 +10,9 @@ import (
     "database/sql"
     "github.com/google/uuid"
     _ "github.com/lib/pq"
-    "internal/config"
-    "internal/database"
-    "internal/rss"
+    "github.com/InfinitasFish/blog_gator/internal/config"
+    "github.com/InfinitasFish/blog_gator/internal/database"
+    "github.com/InfinitasFish/blog_gator/internal/rss"
 )
 
 type state struct {
