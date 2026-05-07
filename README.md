@@ -10,7 +10,7 @@ Install PostgreSQL server, create a .gatorconfig.json in HOME directory with the
 	"current_user_name": "alice"
 }
 ```
-Then do ```go install github.com/InfinitasFish/blog_gator```, after that you can use ```blog_gator``` as executable.
+Then do ```go install github.com/InfinitasFish/blog_gator@v1.0.0```, after that you can use ```blog_gator``` as executable.
 
 
 # Some commands:
