@@ -5,6 +5,7 @@ import (
     "time"
     "os"
     "log"
+    "strconv"
     "context"
     "database/sql"
     "github.com/google/uuid"
@@ -128,7 +129,8 @@ func handlerAggregation(s *state, cmd command) error {
     for ; ; <-ticker.C {
         err = scrapeFeeds(s)
         if err != nil {
-            return err
+            // not ending endless loop
+            log.Println(err)
         }
     }
 
@@ -249,6 +251,32 @@ func handlerUnfollowFeed(s *state, cmd command, user_db database.User) error {
     return nil
 }
 
+func handlerBrowsePosts(s *state, cmd command, user_db database.User) error {
+    var posts_limit int
+    var err error
+    if len(cmd.args) != 1 {
+        posts_limit = 2
+    } else {
+        posts_limit, err = strconv.Atoi(cmd.args[0])
+        if err != nil {
+            return err
+        }
+    }
+
+    empty_context := context.Background()
+    get_posts_args := database.GetLatestPostsForUserParams{UserID: user_db.ID, Limit: int32(posts_limit)}
+    posts_rows, err := s.db.GetLatestPostsForUser(empty_context, get_posts_args)
+    if err != nil {
+        return err
+    }
+
+    for _, post_row := range posts_rows {
+        fmt.Printf("%v (%v):\n  - %v\n", post_row.PostTitle, post_row.PostUrl, post_row.Description.String)
+    }
+
+    return nil
+}
+
 func middlewareLoggedIn(handler func(s *state, cmd command, user database.User) error) func(*state, command) error {
     return func(s *state, cmd command) error {
         user_name := sql.NullString{String: *s.conf.UserName, Valid: true}
@@ -262,7 +290,7 @@ func middlewareLoggedIn(handler func(s *state, cmd command, user database.User) 
 }
 
 func scrapeFeeds(s *state) error {
-    // find oldest or null fetched feed -> fetch feed -> mark feed as fetched -> print feed rrs items
+    // find oldest or null fetched feed -> fetch feed -> mark feed as fetched -> add rss' posts to db
     empty_context := context.Background()
 	feed_db, err := s.db.GetNextFeedToFetch(empty_context)
     if err != nil {
@@ -281,11 +309,36 @@ func scrapeFeeds(s *state) error {
         return err
     }
 
-    fmt.Printf("\nFetched '%v' (link: %v) feed\n", rss_feed.Channel.Title, rss_feed.Channel.Link)
+    fmt.Printf("Scraped feed %v\n", rss_feed.Channel.Title)
     for _, item := range rss_feed.Channel.Item {
-        fmt.Printf("  - item '%v' (link: %v)\n", item.Title, item.Link)
+    
+        var published_time sql.NullTime
+        pub_time, err := time.Parse("2020-03-15 07:31:42.23", item.PubDate)
+        if err != nil {
+            published_time = sql.NullTime{Time: pub_time, Valid: false}
+        } else {
+            published_time = sql.NullTime{Time: pub_time, Valid: true}
+        }
+        
+        var description sql.NullString
+        if len(item.Description) > 0 {
+            description = sql.NullString{String: item.Description, Valid: true}
+        } else {
+            description = sql.NullString{String: item.Description, Valid: false}
+        }
+
+        post_args := database.CreatePostParams{ID: uuid.New(), CreatedAt: time.Now(), UpdatedAt: time.Now(),
+                                            PostTitle: item.Title, PostUrl: item.Link, 
+                                            Description: description,
+                                            PublishedAt: published_time,
+                                            FeedID: feed_db.ID}
+        _, err = s.db.CreatePost(empty_context, post_args)
+        if err != nil {
+            return err
+        }
+        fmt.Printf("Added post %v to db\n", item.Title)
     }
-	
+
     return nil
 }
 
@@ -317,6 +370,7 @@ func main() {
     commands.register("follow", middlewareLoggedIn(handlerFollowFeed))
     commands.register("following", middlewareLoggedIn(handlerUserFollowing))
     commands.register("unfollow", middlewareLoggedIn(handlerUnfollowFeed))
+    commands.register("browse", middlewareLoggedIn(handlerBrowsePosts))
 
     if len(args) <= 1 {
         log.Fatalf("Not enough arguments\n")
